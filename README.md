@@ -55,6 +55,12 @@ On pfSense, assign the worker's MAC address a static IP in VLAN 50. Configure th
 
 Any web-based task the worker needs runs through the gateway: the gateway receives the instruction, makes the outbound call over its own SOCKS5 proxies, and returns the result to the worker. This keeps the worker's network surface near zero.
 
+## Planned / Staging
+
+- **Containerized worker runtime** — Migrate worker processes from bare-metal systemd services to Docker/Podman containers with read-only root filesystems and ephemeral /tmp, to further reduce the attack surface of each agent node.
+- **Centralized worker health dashboard** — Deploy a lightweight Prometheus + Grafana stack on the management VLAN to track per-worker CPU, memory, SSH session count, and last-seen timestamp, replacing the manual `systemctl status` checks.
+- **Local model inference on worker VLAN** — If the GPU node materializes, workers could offload LM calls to the local inference host instead of routing through external API providers, improving latency and cutting credit burn.
+
 ## Verification
 
 ```bash
