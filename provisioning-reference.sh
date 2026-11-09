@@ -21,23 +21,12 @@ echo "Sudo restricted."
 
 echo "=== Step 3: Install SSH key from gateway ==="
 sudo -u agent-runner mkdir -p ~agent-runner/.ssh
-# In practice, copy the actual key — never commit it
 echo "<gateway-public-key>" | sudo tee -a ~agent-runner/.ssh/authorized_keys
 echo "SSH key installed."
 
-echo "=== Step 4: Configure proxychains (SOCKS5) ==="
-sudo apt install -y proxychains4
-cat << 'EOF' | sudo tee -a /etc/proxychains4.conf
-# Proxy list appended below any existing config
-[ProxyList]
-socks5 <gateway-tailnet-ip> 1080
-EOF
-echo "SOCKS5 proxy configured."
-
-echo "=== Step 5: Verify isolation ==="
+echo "=== Step 4: Verify isolation ==="
 echo "Testing that LAN access is blocked..."
 ping -c 1 -W 2 <mgmt-host> || echo "PASS: management VLAN unreachable"
-echo "Testing egress via SOCKS5..."
-curl --proxy socks5://<gateway>:1080 -s https://check.torproject.org | head -1 || echo "Check proxy config if this fails"
-
+echo "Testing SSH access from gateway..."
+ssh -o ConnectTimeout=5 <gateway> "echo 'Gateway can reach worker'" || echo "Check tailnet connectivity"
 echo "Done. Worker is provisioned and isolated."

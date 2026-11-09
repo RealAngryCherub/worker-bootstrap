@@ -1,16 +1,17 @@
 # Worker Bootstrap — Isolated Linux Automation Nodes
 
-Reference documentation for provisioning isolated Linux workers that connect to a self-hosted AI gateway (Hermes or similar) via SOCKS5 proxies. These are the patterns used in my home-lab multi-agent orchestration setup.
+Reference documentation for provisioning isolated Linux workers that connect to a self-hosted AI gateway (Hermes or similar). These are the patterns used in my home-lab multi-agent orchestration setup.
 
 > **Note:** This is not a turnkey install script. It's a reference guide explaining the isolation strategy — credential paths, IPs, and secrets are replaced with placeholders.
 
 ## Isolation Strategy
 
-Each worker operates under three layers of isolation:
+Each worker operates under two layers of isolation:
 
 1. **OS User Isolation** — dedicated low-privilege system account
-2. **Network Isolation** — segregated VLAN with no LAN access
-3. **Traffic Mediation** — all outbound communication goes through a SOCKS5 proxy
+2. **Network Isolation** — segregated VLAN with no outbound LAN access; the gateway reaches them via SSH over the tailnet
+
+Outbound web traffic (when needed) is handled by the **gateway**, not the workers — it routes select tasks through SOCKS5 proxies and relays the results back. Workers themselves have no direct internet proxy configured.
 
 ## Provisioning Steps
 
@@ -37,47 +38,32 @@ The worker can restart its own service but cannot escalate privileges.
 
 ```bash
 sudo -u agent-runner mkdir -p ~agent-runner/.ssh
-# Copy the gateway's public key into authorized_keys
 echo "<gateway-public-key>" | sudo tee -a ~agent-runner/.ssh/authorized_keys
 ```
 
 ### 4. Assign to agent VLAN
 
-On pfSense, assign the worker's MAC address a static IP in VLAN 50 and configure the firewall to allow outbound traffic only through the SOCKS5 proxy port on the gateway.
-
-### 5. Route all traffic through SOCKS5
-
-On the worker, configure proxychains or a systemd service:
-
-```ini
-# /etc/proxychains4.conf
-strict_chain
-proxy_dns
-[ProxyList]
-socks5  <gateway-tailnet-ip> 1080
-```
-
-Or use environment-level proxy variables for specific applications.
+On pfSense, assign the worker's MAC address a static IP in VLAN 50. Configure the firewall so the worker can be reached by the gateway (SSH from VLAN 10) but cannot initiate connections to any other internal VLAN or the internet directly.
 
 ## VLAN 50 Firewall Rules (pfSense)
 
-| Direction | Allowed | Denied                  |
-|-----------|---------|-------------------------|
-| Outbound  | SOCKS5 proxy port (1080) to gateway | All other LAN destinations |
-| Inbound   | SSH from gateway only   | All other inbound         |
-| Inter-VLAN| Nothing                | Any VLAN 10/20/30/40/80  |
+| Direction | Allowed                               | Denied                        |
+|-----------|---------------------------------------|-------------------------------|
+| Inbound   | SSH from gateway (VLAN 10)            | All other inbound             |
+| Outbound  | None (no default route to WAN or LAN) | All outbound unless explicitly approved |
+| Inter-VLAN| Nothing                                | Any VLAN 10/20/30/40/80      |
+
+Any web-based task the worker needs runs through the gateway: the gateway receives the instruction, makes the outbound call over its own SOCKS5 proxies, and returns the result to the worker. This keeps the worker's network surface near zero.
 
 ## Verification
 
-Check the worker is properly isolated:
-
 ```bash
-# From the worker — should fail (no LAN access)
+# From the gateway — should succeed
+ssh agent-runner@<worker-tailnet-ip>
+
+# From the worker — should fail (no LAN outbound)
 ping <management-host>
 curl http://<server-ip>
-
-# From the worker — should succeed (egress via proxy)
-curl --proxy socks5://<gateway>:1080 https://check.torproject.org
 ```
 
 ## Related
